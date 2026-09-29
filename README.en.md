@@ -232,13 +232,13 @@ Compare your own numbers against [`logs/done-lines-raw.txt`](logs/done-lines-raw
 | `--max-private-continuations` / `--max-shared-prefixes` / `--max-long-anchors-per-continuation` | 2 / 4 / 2 | **4 / 8 / 8** | These are **descriptor counts, not memory** (`address_capacity = private + shared + 1`); raising them does not shrink the byte budget of any checkpoint. |
 
 `--max-context` was **not** raised. Back-computing from the engine's own refusal:
-`12,004,767,744 ÷ 262,144 = 45,794.58 B/token` ⇒ `11,330,617,856 ÷ 45,794.58 ≈ 247,422.7`,
+`12,004,767,744 ÷ 262,144 = 45,794.5547 B/token` ⇒ `11,330,617,856 ÷ 45,794.5547 ≈ 247,422.8`,
 i.e. the largest prompt this card can prepare is about **247,423 tokens** — so `245000` leaves only ~2,400 tokens of slack.
 
-**Two independent sources agree on that per-token cost**: the refusal message above, and the running engine's own line `KV 245,056 tokens … runtime 10.5 GiB` (which back-computes to the same ~45,794.58 B/token; 10.45 GiB ≈ the reported 10.5 GiB).
+**A second source points the same way, with limited precision**: the running engine's own line `KV 245,056 tokens … runtime 10.5 GiB`. At 45,794.5547 B/token that works out to 10.4515 GiB, which rounds to the printed `10.5 GiB`; conversely, `10.5 GiB` at two significant figures only pins the per-token cost to roughly 45,788–46,226. **Consistent, but do not treat it as independent proof.**
 
 `262144` was tried and refused: `requested Engine runtime reservation requires 12004767744 bytes, but only 11330617856 bytes are available`.
-⚠️ **This spot was wrong in an earlier version and has been corrected**: it said `45,794 B/token` and `≈247,428`, plus an explanation that 247,428 was "the integer-denominator approximation" — **that explanation was fabricated**, and `247,428` cannot be produced by any denominator (dividing by 45,794 gives 247,425.8, which rounds to 247,426). Everything is now unified on `45,794.58 B/token` / **≈247,423**.
+⚠️ **This spot was wrong in an earlier version and has been corrected**: it mixed `45,794` (an integer) with `45,794.55` and stated the ceiling as `≈247,428`, with an explanation that 247,428 was "the integer-denominator approximation" — **`247,428` cannot be produced by any denominator** (dividing by 45,794 gives 247,425.8, which rounds to 247,426), and that explanation was fabricated. Everything is now unified on `45,794.5547 B/token` / **≈247,423**.
 Those two lines come from the launcher's console (the matching engine log was overwritten by a later successful start); the original text is in [`evidence/failed-startup-console.txt`](evidence/failed-startup-console.txt).
 
 ---
