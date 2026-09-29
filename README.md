@@ -23,6 +23,7 @@
 | 内核数字背后的 A/B 原始臂 | [`evidence/v2ab/`](evidence/v2ab/)（10 个 JSON） |
 | 两次失败启动的控制台原文 | [`evidence/failed-startup-console.txt`](evidence/failed-startup-console.txt) —— **来源是控制台，不是日志** |
 | 页锁定内存探针的方法与结论 | [`evidence/pinned-probe-notes.txt`](evidence/pinned-probe-notes.txt) —— **原始探针输出未发布** |
+| **可直接运行的启动脚本 + `.wslconfig` 样例** | [`launcher/`](launcher/) —— 不必自己抄命令行；**不含** Windows 包装器（那部分不可移植，见该目录说明） |
 
 **关于「证据强度」的一句实话**：本仓库的原始实测数字（逐行主表、7 个计数、压缩循环明细、
 A/B 四值、环境与启动）都能在 `logs/` 里逐行复现。**但有几处不能** —— 内核单次耗时、
@@ -357,5 +358,7 @@ A/B 四值与 +43.6%、环境与启动 13 项、以及线上 22 个文件与本�
 1. 为 sm_70 构建 NInfer（见上游仓库；需要 CUDA 12.x —— **CUDA 13 已经不支持 Volta**）。
 2. 打上两处内核移植（预填见配套仓库；解码见上面 tpx 与 Flo5k5 两个仓库）。
 3. 用本文顶部的命令行启动引擎，并用 `NINFER_SM70_ATTN_V2=1` 启用 v2 内核。
+   **现成可跑的版本在 [`launcher/start-ninfer.sh`](launcher/start-ninfer.sh)**（顶部三个变量改掉即可），
+   `.wslconfig` 样例在 [`launcher/wslconfig.example`](launcher/wslconfig.example)。
    先把 `.wslconfig` 抬到 `memory=32GB` —— 14 GiB 页锁定 host KV 加上其余部分，16 GB 装不下。
 4. 用任何 OpenAI 兼容客户端驱动它，**保持单流**。与 `logs/done-lines-raw.txt` 对照。
