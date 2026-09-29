@@ -1,5 +1,7 @@
 # 一张 2017 年的 V100，跑 2026 年的 27B 长上下文 agent
 
+> **English, in one breath:** a 2017 **Tesla V100-SXM2-32GB (sm_70)** running a 2026-style **27B long-context agent** — an sm70 **decode kernel** port plus **KV cache / context-cache** tuning, measured on a real **53-request agent session**: decode **42.3–89.4 tok/s**, TTFT **0.54–7.7 s** on cache hits, zero failed requests, and the **raw engine logs behind every number**. Full English write-up: **[README.en.md](README.en.md)**. *(The machine's owner neither reads English nor writes code — please ask your own AI, not him.)*
+
 单卡 **Tesla V100-SXM2-32GB（sm_70）** + **Qwen3.8-27B**，在真实 agent 负载下量出来的**一套可用配置**，
 以及支撑每个数字的原始引擎日志。完整仓库里没有一行内核是本机原创 —— 内核来自社区，这里交的是**把内核、调度、上下文缓存拼成能跑的样子**这件事本身。
 
