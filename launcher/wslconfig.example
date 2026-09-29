@@ -1,0 +1,22 @@
+# Example `.wslconfig` for this configuration.  On Windows this file lives at
+# C:\Users\<you>\.wslconfig and takes effect after `wsl --shutdown`.
+#
+# 32GB is not a tuning choice, it is what the two pinned host pools need:
+#   host KV arena  14.0 GiB   (--host-kv-mib 14336)
+#   host state     1.72 GiB   (--host-state-slots 12, ~147 MiB each, pre-allocated)
+#   engine RSS ~2.4 GiB + the rest of your WSL stack
+#
+# Do NOT raise `memory` hoping to enlarge the prefix pool: measured with a CUDA
+# probe on this machine, a SINGLE cudaMallocHost caps at 15 GiB and cumulative
+# 2 GiB blocks reach 28 GiB, and the cap was identical at memory=32GB and
+# memory=40GB. The engine pins host KV in one call, so ~15 GiB is its limit
+# either way.
+
+[wsl2]
+memory=32GB
+networkingMode=nat
+swap=8GB
+
+[experimental]
+# gradual = hand freed page cache back to Windows automatically (WSL 2.0+).
+autoMemoryReclaim=gradual
