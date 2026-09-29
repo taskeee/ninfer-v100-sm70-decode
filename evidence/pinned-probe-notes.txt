@@ -1,0 +1,86 @@
+# 页锁定（pinned）主机内存上限的实测 —— 方法与结果
+
+⚠️ **这不是可编译的完整副本**，是探针的说明与结论。原始 `.cu` 文件**不在本仓库**。
+
+## 为什么要测
+
+NInfer 启动时会 `pinning host state`（状态影像）与 `pinning host KV`（可复用前缀的字节池）。
+后者的默认值是 8192 MiB。把它调大时遇到 `cudaMallocHost failed: cudaErrorMemoryAllocation`
+（20 GiB 直接起不来），所以需要知道这张机器到底能 pin 多少。
+
+## 探针一：单次分配上限
+
+对 8..28 GiB 逐个尝试**单次** `cudaMallocHost`，成功即 `cudaFreeHost` 释放，再试下一个。
+
+```
+ 8 GiB : OK
+ ...
+14 GiB : OK
+15 GiB : OK
+16 GiB : FAIL (out of memory)
+17 GiB : FAIL (out of memory)
+ ...
+28 GiB : FAIL (out of memory)
+```
+
+## 探针二：是「单次」还是「总量」—— 这是关键
+
+先试单次大块，再改成**连续申请并全部持有** 2 GiB 小块：
+
+```
+--- A: single allocation ---
+  one-shot 14 GiB : OK
+  one-shot 15 GiB : OK
+  one-shot 16 GiB : out of memory
+--- B: cumulative 2 GiB blocks, all held ---
+  held total =  2 GiB
+  ...
+  held total = 28 GiB
+  +2 GiB (would be 30 GiB) : FAIL (out of memory)
+```
+
+## 结论
+
+| 量 | 测得值 |
+|---|---|
+| **单次** `cudaMallocHost` 上限 | **≈15 GiB**（16 GiB 即 OOM） |
+| **累计** pinned 总量 | **≈28 GiB**（30 GiB 即 OOM） |
+
+⇒ 约 15 GiB 是**单次分配**的限制，不是总量限制。
+
+**因为 NInfer 的 `pinning host KV` 是一次性 `cudaMallocHost`，所以 `--host-kv-mib` 的实际上限约 15 GiB。**
+14 GiB（14336 MiB）是留了余量的取值，因为 host state 那 1.72 GiB 也在这个进程里 pin。
+
+## 一条反直觉的实测
+
+**这个上限与 WSL 给多少内存无关。** 在 `.wslconfig memory=32GB` 和 `memory=40GB` 两种设置下
+（每次都 `wsl --shutdown` 后重启再测），探针结果**完全一致**：单次 15 GiB / 累计 28 GiB。
+
+⇒ **给 WSL 加内存买不到更大的前缀池。** 当时两侧的 `free -m` 分别显示 31 GiB 与 39 GiB 空闲，
+所以不是"内存不够"。
+
+## 同机的另一条旁证
+
+`ulimit -l`（max locked memory）在这台机器上是 **65536 KB = 64 MiB**（软硬限相同），
+而 8 GiB 的 pin 是成功的 ⇒ **`cudaMallocHost` 不受 `RLIMIT_MEMLOCK` 约束**，
+不要拿 `ulimit -l` 去估算这个上限。
+
+## 复现方法（自行编译）
+
+```cuda
+#include <cstdio>
+#include <cuda_runtime.h>
+int main() {
+    cudaFreeHost(nullptr);                      // 强制初始化 runtime
+    for (long long gib = 8; gib <= 28; ++gib) {
+        void* p = nullptr;
+        cudaError_t e = cudaMallocHost(&p, (size_t)gib << 30);
+        std::printf("%2lld GiB : %s\n", gib, e == cudaSuccess ? "OK" : cudaGetErrorString(e));
+        if (e == cudaSuccess) cudaFreeHost(p);  // 单次上限
+    }
+    // 累计版：申请 2 GiB 小块并全部持有，直到失败
+    return 0;
+}
+```
+
+编译（本机路径）：`/usr/local/cuda-12.8/bin/nvcc -O2 -o probe probe.cu`
