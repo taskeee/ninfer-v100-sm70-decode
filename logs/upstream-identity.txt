@@ -1,0 +1,50 @@
+# 来源与指纹（供别人核对自己手里的源码）
+
+## 本地树的版本标记
+
+`/home/ai/ninfer-v100` 有一份本地 git 基线（由代码审查工具初始化，**不是上游的 clone**）：
+
+```
+branch = main
+HEAD   = f30745480ee3dff30169fc1a66718ab750ddd62d
+```
+
+⚠️ **这个 hash 记的是本机那份源码树的状态，不是上游 NInfer 的提交号。**
+上游基座的具体提交号**当时没有记录**，也无法事后补出（该目录没有配置 `remote`，本机也没有 `git` 可执行文件）。
+如果你要复刻，请以三个移植来源仓库的提交为准（见 README「署名与许可」），而不是这个 hash。
+
+## 引擎二进制指纹（本次全部实测跑的就是这个）
+
+```
+/home/ai/ninfer-v100/build-v100/apps/ninfer-serve
+299,287,880 bytes   2026-09-28 22:13:04 +0800
+md5  6b104a4464cdab6687351c00770d7ba8
+```
+
+## 三个移植文件的指纹（sha256 前 16 位 + 字节数）
+
+用它核对你手里的源码是不是同一版本：
+
+```
+ac321167b4bd5ed4     26513 B  src/ops/softmax_attention/dense/causal_cache/small_t_i8_volta_v2.cuh
+cfb04766cfb92fab     32041 B  src/ops/softmax_attention/dense/causal_cache/small_t.cu
+287f9f8638b590dd     16237 B  src/ops/linear/w8/w8_volta_gemv.cu
+c3f6cafdb11a7a7b     18072 B  src/ops/launcher/gqa_attention_volta_splitd.cu
+46a00fb25a47e746     49033 B  src/ops/softmax_attention/dense/causal_cache/small_t_i8_volta.cuh
+```
+
+| 文件 | 来源 | 说明 |
+|---|---|---|
+| `small_t_i8_volta_v2.cuh` | [huangserva/ninfer-v100-tpx](https://github.com/huangserva/ninfer-v100-tpx)（Apache-2.0） | v2 解码内核本体，**26,513 B / ac321167** |
+| `small_t.cu` | 本机原树 + 上述移植 | 接线处（Flo5k5 的补丁也改这个文件） |
+| `w8_volta_gemv.cu` | [Flo5k5/ninfer-v100-sm70](https://github.com/Flo5k5/ninfer-v100-sm70) | **新增**文件，16,237 B |
+| `gqa_attention_volta_splitd.cu` | [fishlikeX/sm70-attn](https://github.com/fishlikeX/sm70-attn)（MIT） | Split-D D256 预填内核接线，配套仓库内容 |
+| `small_t_i8_volta.cuh` | 本机原树 | 移植前的原版解码内核（保留用于对照） |
+
+## 未记录的项（诚实声明）
+
+- 上游 NInfer 基座的**提交号**：未记录。
+- Flo5k5 六个提交的**具体 SHA**：本次未记录（来源仓库名已知）。
+- tpx 的**提交号**：未记录（文件级 sha256 已给，可用于比对）。
+- 三个来源仓库的**许可**：`sm70-attn` 已核实为 MIT、`tpx` 为 Apache-2.0；
+  **Flo5k5 的许可发布时未核实** —— 再分发前请自行确认。
