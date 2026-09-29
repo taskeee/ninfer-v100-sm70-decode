@@ -1,0 +1,14 @@
+2026-09-29 07:31:19.553  INFO  starting engine
+2026-09-29 07:31:26.398  INFO  loading weights | 20.0 GiB
+2026-09-29 07:32:29.961  INFO  weights ready | 20.0 GiB | 1m 3.6s | 322.3 MiB/s
+2026-09-29 07:32:31.701  INFO  pinning host state | 1.72 GiB
+2026-09-29 07:32:33.225  INFO  host state pinned | 1.72 GiB | 1.5s
+2026-09-29 07:32:33.227  INFO  pinning host KV | 14.0 GiB
+2026-09-29 07:32:45.192  INFO  host KV pinned | 14.0 GiB | 12.0s
+2026-09-29 07:32:45.849  INFO  CUDA graphs ready | 224 ms
+2026-09-29 07:32:45.851  INFO  engine ready | qwen3.8-27b/nvfp4 | total 1m 26.3s | weights 20.0 GiB
+2026-09-29 07:32:45.851  INFO  capacity | KV 245,056 tokens, int8, explicit | pages 3,829/3,829 | runtime 10.5 GiB | free 188.3 MiB
+2026-09-29 07:32:45.851  INFO  context cache | 1 active + 1 cached device states | host 12 states, 14.0 GiB KV | private 4 | shared 8 | anchors 8
+2026-09-29 07:32:45.851  INFO  media | 12 preprocess workers | cache 1.00 GiB | live 2.00 GiB
+2026-09-29 07:32:46.280  INFO  warmup complete | 429 ms
+2026-09-29 07:32:46.280  INFO  listening on http://127.0.0.1:8110 | model qwen3.8-27b-uncen | auth disabled
