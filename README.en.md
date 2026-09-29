@@ -33,6 +33,7 @@ failed runs and a lot of waiting.
 | The A/B arms behind the kernel numbers | [`evidence/v2ab/`](evidence/v2ab/) (10 JSON files) |
 | Console text of two failed starts | [`evidence/failed-startup-console.txt`](evidence/failed-startup-console.txt) — **console, not log** |
 | Method and result of the pinned-memory probe | [`evidence/pinned-probe-notes.txt`](evidence/pinned-probe-notes.txt) — **raw probe output not published** |
+| **A runnable start script + `.wslconfig` example** | [`launcher/`](launcher/) — no need to transcribe the flags; deliberately **no** Windows wrapper (that part is not portable — see that directory) |
 
 **One honest sentence about evidence strength**: the raw measurements here (per-row table, the seven
 integrity counts, the compaction details, the four A/B values, environment and startup) all reproduce
