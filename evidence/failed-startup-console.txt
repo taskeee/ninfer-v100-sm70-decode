@@ -20,14 +20,15 @@ reservation requires 12004767744 bytes, but only 11330617856 bytes are available
 runtime capacity
 ```
 
-**由它算出的硬顶**：
+**由它算出的硬顶**（⚠️ 2026-09-29 订正：早先此处写 `45,794 B/token` 与 `≈247,428 token`，属整数分母与凑数混用；`247,428` 在任何分母下都算不出来 —— ÷45,794 = 247,425.8，取整是 247,426）：
 
 ```
-12,004,767,744 B ÷ 262,144 token = 45,794 B/token
-11,330,617,856 B ÷ 45,794 B/token ≈ 247,428 token
+12,004,767,744 B ÷ 262,144 token = 45,794.58 B/token
+11,330,617,856 B ÷ 45,794.58 B/token ≈ 247,422.7  ⇒ 约 247,423 token
 ```
 
 ⇒ `--max-context 245000` 只剩约 2,400 token 余量。
+**独立佐证**：`logs/startup-raw.txt` 第 10 行「KV 245,056 tokens … runtime 10.5 GiB」反推同样是 45,794.58 B/token（245,056 × 45,794.58 = 10.45 GiB）。
 
 ## 尝试二：`--host-kv-mib 20480`（20 GiB 页锁定 host KV）（07:19）
 
