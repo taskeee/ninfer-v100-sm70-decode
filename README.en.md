@@ -146,8 +146,8 @@ client's automatic compaction loop. **Not a synthetic benchmark.** Raw lines:
 | 53 | 175,632 | 100.0 | private endpoint | 7.7 s | 7.0 | 52.1 | 65.2% |
 
 Rows 40, 45 and 48 are the **compaction summary calls**. The identification rests on
-`max output 8,192` (the client's default summarisation cap — it occurs exactly 3 times in the whole
-log, everything else is 32,768), plus: each immediately follows an over-threshold request (by
+`max output 8,192` (the client's default summarisation cap — it occurs exactly 3 times in this snapshot; the full
+`max output` histogram is 32,768 x47, 8,192 x3, and 24/64/96 x1 each), plus: each immediately follows an over-threshold request (by
 0.12 s / 3.87 s / 0.09 s), the message count collapses (104->73->38, 49->32->24, 29->25->12), and each
 ends on a stop token after emitting 2,773–4,491 tokens.
 ⚠️ **This is an inference, not a logged fact** — the engine log has no compaction/summarize field and
@@ -189,7 +189,7 @@ is in this band, and what are the real min/max".
 
 | band (which reqs) | n | decode tok/s | prefill tok/s | MTP accept |
 |---|---:|---|---|---|
-| <=167k (prompt 40k–167,428, minus 3 summary calls) | 42 | **44.9 – 89.4** | 10.5 – 1000 | 45.7 – 94.4% |
+| <=167k (prompt 40k–167,428, minus 3 summary calls) | 42 | **44.9 – 89.4** | 10.5 – 1000 | **42.8 – 94.4%** |
 | 175k–206k (#39 #43 #44 #47 #53) | 5 | **42.3 – 52.1** | 7.0 – 616.1 | 51.3 – 65.2% |
 | after compaction, 113k–138k (#41 #46 #49 #50) | 4 | **44.9 – 58.4** | 429.8 – 756.0 | 45.7 – 66.2% |
 | summary calls (#40 #45 #48) | 3 | 58.5 – 67.4 | 648.7 – 799.6 | 67.3 – 69.1% |
@@ -200,8 +200,9 @@ add only a few dozen tokens, divide by a tiny denominator and produce numbers li
 not from depth.
 
 **The only depth claim that survives**: inside the 175k–206k five rows, decode 42.3–52.1 and
-acceptance 51.3–65.2% are both below the main distribution of the <=167k band, and after compaction
-back to 113k–138k decode returns to 57–58. **The direction is consistent; the mechanism is not
+acceptance 51.3–65.2% are both below the **median** of the <=167k band (56.1%) — though 15 of that
+band's 42 rows also sit below 51.3%, so this is not a clean separation — and after compaction back to
+113k–138k those 4 rows read 44.9–58.4 (3 of them 57.3–58.4). **The direction is consistent; the mechanism is not
 established** — it is consistent with KV pressure (245k int8 KV pool, 32 GB device, 14 GiB host
 offload), but no counter-evidence was collected.
 
@@ -350,7 +351,7 @@ corrections.** They are listed so you can see the document was reviewed and wher
 
 | Originally said | Actually | Now |
 |---|---|---|
-| depth table "<=167k = decode 53–58" | per-row 44.9–89.4; 23 of 42 rows outside 53–58 | rewritten from per-row values, with the cause stated |
+| depth table "<=167k = decode 53–58" | per-row 44.9–89.4; **24 of 42 rows** outside [53, 58] | rewritten from per-row values, with the cause stated |
 | "175k–206k = 42–47 / 422–444" | that band has 5 rows (#39, #53 were dropped); prefill 7.0–616.1 | rewritten, req numbers listed |
 | "after compaction = 57–58" | true only for 2 rows; #41 (44.9) and #50 were dropped | rewritten (44.9–58.4, n=4) |
 | "about 5 minutes per compaction" | 5 m 13.8 s / 5 m 57.1 s / **7 m 8.0 s** | per-cycle measured table |
