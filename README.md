@@ -1,75 +1,77 @@
-# 一张 2017 年的 V100，跑 2026 年的 27B 长上下文 agent
+<p align="center">
+  <a href="README.md"><img alt="English (current)" src="https://img.shields.io/badge/Language-English-2f81f7?style=for-the-badge"></a>
+  <a href="README.zh-CN.md"><img alt="简体中文" src="https://img.shields.io/badge/%E8%AF%AD%E8%A8%80-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-d73a4a?style=for-the-badge"></a>
+</p>
 
-> **English, in one breath:** a 2017 **Tesla V100-SXM2-32GB (sm_70)** running a 2026-style **27B long-context agent** — an sm70 **decode kernel** port plus **KV cache / context-cache** tuning, measured on a real **53-request agent session**: decode **42.3–89.4 tok/s**, TTFT **0.54–7.7 s** on cache hits, zero failed requests, and the **raw engine logs behind every number**. Full English write-up: **[README.en.md](README.en.md)**. *(The machine's owner neither reads English nor writes code — please ask your own AI, not him.)*
+# A 2017 Tesla V100 running a 2026 27B long-context agent
 
-单卡 **Tesla V100-SXM2-32GB（sm_70）** + **Qwen3.8-27B**，在真实 agent 负载下量出来的**一套可用配置**，
-以及支撑每个数字的原始引擎日志。完整仓库里没有一行内核是本机原创 —— 内核来自社区，这里交的是**把内核、调度、上下文缓存拼成能跑的样子**这件事本身。
+A **working configuration** for a single **Tesla V100-SXM2-32GB (sm_70)** running **Qwen3.8-27B**, measured under a real agent workload, together with the raw engine logs behind every number. No kernel here is original work by this machine's owner — the kernels come from the community; what is published here is the part that makes them **add up to something that runs**: kernels + scheduling + context-cache tuning.
 
-> ### 先说两件事
+![Decode speed vs prompt depth, and time to first token on a cache hit vs a miss, across one real 53-request agent session](assets/session-53-benchmark.png)
+
+> ### Two things first
 >
-> **① 这份内容被 AI 反复核验过很多轮，但 AI 难免还会有幻觉。**
-> 这里每个数字都回溯到 `logs/` 里的原始日志，并且被**没有参与产出**的独立进程逐条重算过不止一次 —— 即便如此，
-> **仍然可能有对不上的地方**（已经抓出过两轮，错在哪、怎么订正的都留在 [`claims.md`](claims.md) 末节）。
-> 所以：**正文的转述万一和 `logs/` 里的原始行冲突，以原始行为准，别信我这里的总结。**
+> **① This content has been verified by AI many times over — but AI still hallucinates.**
+> Every number here traces back to the raw logs in `logs/`, and the whole document has been recomputed line by line by independent processes that took no part in producing it. Even so, **some claims may still be wrong** (two rounds of errors have already been found and corrected; what was wrong and how it was fixed is kept at the end of [`claims.md`](claims.md)).
+> So: **if a sentence below disagrees with the raw line in `logs/`, the raw line wins.** Do not trust the summary over the evidence.
 >
-> **② 但实测效果是真的好，尤其是长上下文。**
-> prompt 从 4 万涨到 20 万 token（约 5 倍深度），**解码中位数只从 56.8 掉到 46.6 tok/s（约 −18%）**，
-> 全程没有塌陷式掉速；20 万 token 那一档仍稳定在 **42–52 tok/s**。
-> 考虑到这是一张 2017 年的单卡、还是没人为它写新内核的 Volta 架构，**这个衰减幅度是这套配置最值钱的地方**。
+> **② But the measured result is genuinely good — especially at long context.**
+> Going from a 40k-token prompt to a 200k-token prompt (about 5× the depth), **median decode only drops from 56.8 to 46.6 tok/s (about −18%)**, with no collapse anywhere; the 200k band still holds **42–52 tok/s**.
+> For a single 2017 card on an architecture nobody writes new kernels for any more, **that shallow decay is the most valuable part of this configuration.**
 
-**30 秒版**
+**30-second version**
 
 | | |
 |---|---|
-| 解码速度 | **42.3 – 89.4 tok/s**（必须与 MTP 接受率成对读，见 §2） |
-| 首字（TTFT） | 命中缓存 **0.54 – 7.7 秒**；未命中要全量预填，**43 秒 – 4 分 44 秒** |
-| 稳定性 | 53 个真实请求：started 53 / done 53 / 400 零 / 503 零 / OOM 零 |
-| 代价 | 14 GiB 页锁定主机内存；每轮上下文压缩后必然一次 2.5–4 分钟的全量重算 |
-| 怎么抄 | [`launcher/start-ninfer.sh`](launcher/start-ninfer.sh) + [`launcher/wslconfig.example`](launcher/wslconfig.example)，四个关键参数见 §4 |
-| 不要越的线 | prompt 约 **247,423 token** 是这张卡的硬顶，`--max-context` 别再往上抬（§5 第 1 条） |
+| Decode | **42.3 – 89.4 tok/s** (must be read together with MTP acceptance — see §2) |
+| TTFT | **0.54 – 7.7 s** on a cache hit; **43 s – 4 m 44 s** on a miss (full re-prefill) |
+| Stability | 53 real requests: started 53 / done 53 / zero 400 / zero 503 / zero OOM |
+| The cost | 14 GiB of pinned host memory; one unavoidable 2.5–4 minute full re-prefill per context compaction |
+| How to copy it | [`launcher/start-ninfer.sh`](launcher/start-ninfer.sh) + [`launcher/wslconfig.example`](launcher/wslconfig.example); the four settings that matter are in §4 |
+| Do not cross | ~**247,423 tokens** of prompt is this card's hard ceiling. Do not raise `--max-context` past that (§5 item 1) |
 
 ---
 
-## 关于作者（先看这一条，省得白问）
+## About the author (read this first, it saves you a wasted question)
 
-**我是这张卡的主人，也是这个仓库的所有者。我不读英文，也不写代码。** 这份文档和仓库里的文件都是 AI 帮我做的、帮我发的。
+**I own this machine and this repository. I do not read English and I do not write code.** The document and the files here were produced and published by an AI on my behalf.
 
-所以：**技术问题问我等于白问，我是真的不知道。** 请**问你自己手上那个 AI** —— 它能读这里的全部文件、`logs/` 里的原始日志、`claims.md` 里每条断言的来源映射，还有两个上游仓库，这些我都读不了。
+So: **asking me technical questions is a waste of your time — I genuinely do not know.** Please **ask your own AI instead**: it can read every file here, the raw logs in `logs/`, the per-claim source mapping in `claims.md`, and the upstream repositories — none of which I can read.
 
-也请友善一点：下面这些能跑通的配置，是用一堆跑失败的运行和大量干等换来的。
+And please be kind: every working setting below was paid for with a pile of failed runs and a lot of waiting.
 
-本文写成时间 2026-09-29。数字属于**这一台机器**，换机器别指望一样。英文版：[`README.en.md`](README.en.md)
-
----
-
-## 1. 它解决什么问题
-
-V100 是 2017 年的卡（Volta / sm_70 / 32 GB HBM2）。2026 年想拿它跑"现代"的 agent 负载，会撞三堵墙：
-
-1. **新引擎不要它。** 主流推理栈的新注意力内核基本只写 sm_80 以上；Volta 要么没有内核，要么退化到很慢的路径。V100 的算力还在（SXM2 约 900 GB/s 带宽），但没人给它写新代码。
-2. **27B dense + 长上下文装不下。** KV cache 随 token 线性涨，20 万 token 在 32 GB 卡上要一 MiB 一 MiB 地抠。
-3. **agent 负载不是跑分。** 一个回合要装下系统提示 + 47 个工具 schema + 全部历史，prompt 常在十几万 token；而客户端会在窗口 80% 处自动压缩上下文 —— **压缩一发生，前面所有缓存全废，从头预填**。这就是"用着用着突然卡住五分钟"的来源。
-
-这套配置把三堵墙各自绕过去：
-
-- **① 移植内核**：把社区已公开的两个 sm70 内核搬进来（**预填**在配套仓库，**解码**在本仓库记录），全部有上游出处（§8）。
-- **② 调对调度与上下文缓存**：四个参数按这张卡重新定值（§4），这一步是"能跑"和"跑得顺"的分界线。
-- **③ 用真实负载量**：53 个请求来自一个真实 agent 会话（27B 自己把上下文长起来，自己触发压缩），不是合成语料跑分。
-
-顺带一个反过来的结论：**这套栈上单报一个解码数字没有意义**。解码与 MTP 接受率不独立，只挑好看的行说"最快"是自欺（§2 末）。
-
-**预填那一半在配套仓库**：[`taskeee/ninfer-v100-splitd-kernel`](https://github.com/taskeee/ninfer-v100-splitd-kernel) 覆盖预填内核的移植（1CatAI Split-D D256，+36~41%、首字 −3 分钟）；本仓库覆盖**解码内核、调度与上下文缓存、以及真实 agent 负载下的端到端表现**。
+Written 2026-09-29. These numbers belong to **one machine**; do not expect the same on another.
 
 ---
 
-## 2. 效果
+## 1. What problem this solves
 
-### 2.1 一个真实会话，53 个引擎请求
+The V100 is a 2017 card (Volta / sm_70 / 32 GB HBM2). In 2026, running a "modern" agent workload on it means hitting three walls:
 
-同一台机器、同一个 agent 会话、单流。27B 模型自己把上下文长到 20 万 token 并触发 3 轮压缩。
-下表**每档挑一行**展示（完整 53 行逐行原文在 [`logs/done-lines-raw.txt`](logs/done-lines-raw.txt)）。
+1. **New engines do not want it.** New attention kernels in mainstream inference stacks are written for sm_80 and up; on Volta you either have no kernel or a very slow fallback path. The compute is still there (SXM2, ~900 GB/s), but nobody writes new code for it.
+2. **27B dense + long context does not fit.** KV cache grows linearly with tokens; 200k tokens on a 32 GB card has to be budgeted MiB by MiB.
+3. **An agent workload is not a benchmark.** One turn has to hold the system prompt + 47 tool schemas + the whole history — prompts routinely sit in the 100k+ range. And the client compacts context at 80% of the declared window — **when that happens, every prefix cache is invalidated and the next request re-prefills from scratch.** That is where "it suddenly froze for five minutes" comes from.
 
-| req | prompt | 缓存% | 复用来源 | TTFT | 预填 tok/s | **解码 tok/s** | **MTP 接受率** |
+This configuration walks around all three walls:
+
+- **① Port the kernels.** Both sm70 kernels are already public; the **prefill** side lives in the companion repository, the **decode** side is documented here. Every upstream source is named in §8.
+- **② Get scheduling and the context cache right.** Four settings are re-derived for this card (§4). This step is the difference between "it starts" and "it is usable".
+- **③ Measure a real workload.** The 53 requests come from one real agent session (the 27B model grew its own context and triggered its own compactions), not a synthetic corpus.
+
+One conclusion that runs the other way: **a single decode figure means nothing on this stack.** Decode and MTP acceptance are not independent, and quoting only the flattering rows as "the fastest" is self-deception (end of §2).
+
+**The prefill half lives in the companion repo**: [`taskeee/ninfer-v100-splitd-kernel`](https://github.com/taskeee/ninfer-v100-splitd-kernel) covers the prefill kernel port (1CatAI Split-D D256, +36–41% prefill, TTFT −3 min). This repository covers the **decode kernel, scheduling and context-cache settings, and end-to-end behaviour under a real agent load**.
+
+---
+
+## 2. Results
+
+### 2.1 One real session, 53 engine requests
+
+Same machine, same agent session, single stream. The model grew its context to 200k tokens and triggered 3 compactions.
+The table below **picks one representative row per segment** (all 53 raw lines are in [`logs/done-lines-raw.txt`](logs/done-lines-raw.txt)).
+
+| req | prompt | cache% | reuse path | TTFT | prefill tok/s | **decode tok/s** | **MTP acceptance** |
 |---:|---:|---:|---|---:|---:|---:|---:|
 | 3 | 40,119 | 0.0 | root | 43.1 s | 1,000 | 55.5 | 49.0% |
 | 7 | 49,540 | 99.7 | private endpoint | 0.71 s | 203.0 | 59.2 | 56.2% |
@@ -77,7 +79,7 @@ V100 是 2017 年的卡（Volta / sm_70 / 32 GB HBM2）。2026 年想拿它跑"�
 | 14 | 65,536 | 100.0 | private endpoint | 1.9 s | 14.2 | 56.0 | 50.5% |
 | 24 | 88,096 | 96.9 | private endpoint | 4.7 s | 602.2 | 47.2 | 42.8% |
 | 32 | 98,612 | 99.9 | private endpoint | 4.5 s | 11.9 | **89.4** | **83.1%** |
-| 33 | 88,528 | 0.0 | root（探针） | 1 m 46.8 s | 829.8 | 72.4 | 94.4% |
+| 33 | 88,528 | 0.0 | root (probe) | 1 m 46.8 s | 829.8 | 72.4 | 94.4% |
 | 37 | 134,156 | 0.0 | root | 3 m 57.6 s | 565.0 | 53.2 | 59.4% |
 | 38 | 167,428 | 80.4 | private endpoint | 1 m 11.2 s | 460.9 | 55.8 | 68.6% |
 | 39 | 201,700 | 83.2 | private endpoint | 1 m 23.7 s | 404.8 | 49.2 | 63.0% |
@@ -94,104 +96,100 @@ V100 是 2017 年的卡（Volta / sm_70 / 32 GB HBM2）。2026 年想拿它跑"�
 | 52 | 172,414 | 99.8 | private endpoint | 1.6 s | 280.4 | 50.6 | 62.1% |
 | 53 | 175,632 | 100.0 | private endpoint | 7.7 s | 7.0 | 52.1 | 65.2% |
 
-**怎么读这张表：**
+**How to read it:**
 
-- **解码必须与接受率成对读**，两者不独立：表里最慢的两行（42.3 / 44.9）接受率就是最低的 51.3% / 45.7%。
-- **不要把个别高值当"最快"**：本次会话真正的解码高值是 req#32 = 89.4（接受 83.1%）、req#8 = 75.1（72.5%）、req#33 = 72.4（94.4%）、req#29 = 71.1（75.6%）、req#23 = 70.1（69.2%）—— 其中 #8/#29/#23 **不在上表里**（上表每档只挑了一行）。
-- **预填那一列的极值没有解释力**：深度浅、增量只有几十 token 的轮次分母极小，会算出 1000 或 7.0 tok/s 这种数。**TTFT 才是可读的量。**
-- **「复用来源」列有两处要说明**：命中时引擎日志会打印 `private endpoint` / `turn closure` / `shared prefix` 路径标签；**未命中时不打印任何标签，只打印 `cache 0 (0.0%)`**。表里的 `root` 是按"未命中"加注的（`root` 是引擎文档里该路径的正式名字），`root（探针）` 里的"探针"依据来自被测会话自己的台账，**不是引擎日志**。
-- 第 40、45、48 行是**客户端压缩摘要调用**（判定依据 `max output 8,192` 全文只出现 3 次 + 三条紧跟越阈请求晚 0.12 s / 3.87 s / 0.09 s + 消息数塌缩 104→73→38、49→32→24、29→25→12）。⚠️ **这是推断，不是日志事实** —— 引擎日志不记 prompt 内容、也没有 compaction 字段。旁证很强，但严格说是推断。
+- **Decode must be read together with acceptance** — they are not independent: the two slowest rows (42.3 / 44.9) are also the two lowest acceptance rates (51.3% / 45.7%).
+- **Do not treat an individual high value as "the fastest".** The genuine decode highs in this session were req#32 = 89.4 (acceptance 83.1%), req#8 = 75.1 (72.5%), req#33 = 72.4 (94.4%), req#29 = 71.1 (75.6%), req#23 = 70.1 (69.2%) — and #8/#29/#23 **are not in the table above** (it shows one row per segment).
+- **The extremes in the prefill column carry no information**: rows with a shallow depth and a few dozen incremental tokens have a tiny denominator and will produce figures like 1000 or 7.0 tok/s. **TTFT is the readable quantity.**
+- **Two caveats about the "reuse path" column**: on a hit the engine log prints a path label (`private endpoint` / `turn closure` / `shared prefix`); **on a miss it prints no label at all, only `cache 0 (0.0%)`**. The `root` entries are annotated by us as "miss" (`root` is the documented name of that path), and the "probe" in `root (probe)` comes from the session's own ledger, **not from the engine log**.
+- Rows 40, 45 and 48 are **client-side compaction summary calls** (identified by `max output 8,192` appearing exactly 3 times, by three follow-up over-threshold requests 0.12 s / 3.87 s / 0.09 s later, and by message-count collapses 104→73→38, 49→32→24, 29→25→12). ⚠️ **This is an inference, not a logged fact** — the engine log records no prompt content and has no compaction field. The circumstantial evidence is strong, but it is still an inference.
 
-**汇总**（口径写在 [`claims.md`](claims.md)，可逐条重算）：
+**Summary** (definitions are in [`claims.md`](claims.md); every line can be recomputed):
 
-| 口径 | 值 |
+| Measure | Value |
 |---|---|
-| 解码（prompt ≥40k 的全部行） | 42.3 – 89.4 tok/s |
-| MTP 接受率（同口径） | 42.8 – 94.4% |
-| 缓存命中（复用 ≥99%）的行 TTFT | 0.54 s – 7.7 s（n=21） |
-| 缓存未命中、真实深度（prompt ≥40k） | 53 个请求里 **9 个**，TTFT 43.1 s – 4 m 44.2 s |
-| 整场完整性 | `started 53 / done 53 / 400 零 / 503 零 / OOM 零 / FATAL 零`（引擎 pid 24，采集时采样） |
+| Decode (all rows with prompt ≥40k) | 42.3 – 89.4 tok/s |
+| MTP acceptance (same set) | 42.8 – 94.4% |
+| TTFT of cache-hit rows (reuse ≥99%) | 0.54 s – 7.7 s (n=21) |
+| Cache misses at real depth (prompt ≥40k) | **9** of 53 requests, TTFT 43.1 s – 4 m 44.2 s |
+| Overall integrity | `started 53 / done 53 / zero 400 / zero 503 / zero OOM / zero FATAL` (engine pid 24, sampled at capture) |
 
-### 2.2 深度与接受率：区间怎么读
+### 2.2 Depth vs acceptance: how to read the bands
 
-⚠️ 本节 2026-09-29 被独立核对推翻过一次（4 行里错 3 行），现在是按逐行原值重写的版本。
-**区间数字一律以 2.1 的逐行原值为准，本节只回答"这段里都有谁 + 真实 min/max"。**
+⚠️ This section was overturned once by an independent check on 2026-09-29 (3 of its 4 rows were wrong); what follows is rewritten from the per-row values.
+**Band figures are only valid if recomputed from the per-row table in 2.1; this section answers only "who is in this band, and what are the true min/max".**
 
-| 区间（含哪些 req） | n | 解码 tok/s | 预填 tok/s | MTP 接受率 |
+| Band (which reqs) | n | decode tok/s | prefill tok/s | MTP acceptance |
 |---|---:|---|---|---|
-| ≤167k（prompt 40k–167,428，排除 3 条摘要） | 42 | **44.9 – 89.4** | 10.5 – 1000 | **42.8 – 94.4%** |
-| 175k–206k（#39 #43 #44 #47 #53） | 5 | **42.3 – 52.1** | 7.0 – 616.1 | 51.3 – 65.2% |
-| 压缩后 113k–138k（#41 #46 #49 #50） | 4 | **44.9 – 58.4** | 429.8 – 756.0 | 45.7 – 66.2% |
-| 压缩摘要调用（#40 #45 #48） | 3 | 58.5 – 67.4 | 648.7 – 799.6 | 67.3 – 69.1% |
+| ≤167k (prompt 40k–167,428, excluding the 3 summaries) | 42 | **44.9 – 89.4** | 10.5 – 1000 | **42.8 – 94.4%** |
+| 175k–206k (#39 #43 #44 #47 #53) | 5 | **42.3 – 52.1** | 7.0 – 616.1 | 51.3 – 65.2% |
+| after compaction, 113k–138k (#41 #46 #49 #50) | 4 | **44.9 – 58.4** | 429.8 – 756.0 | 45.7 – 66.2% |
+| compaction summaries (#40 #45 #48) | 3 | 58.5 – 67.4 | 648.7 – 799.6 | 67.3 – 69.1% |
 
-**唯一站得住的深度结论**：175k–206k 那 5 行的解码（42.3–52.1）确实比浅层低；但**接受率不是一致地低** ——
-5 行里有 3 行（#39 63.0% / #47 57.0% / #53 65.2%）**高于** ≤167k 那 42 行的中位数 **56.15%**，
-而 ≤167k 那 42 行里也有 15 行低于 51.3%。**所以这不是干净的分离。**
+**The only depth conclusion that holds**: decode in the 175k–206k band (42.3–52.1) is indeed lower than at shallower depth; but **acceptance is not uniformly lower** — 3 of those 5 rows (#39 63.0% / #47 57.0% / #53 65.2%) are **above** the **56.15%** median of the 42 rows in the ≤167k band, while 15 of those 42 rows sit below 51.3%. **So this is not a clean separation.**
 
-⚠️ 早先版本在这里写"175k–206k 的接受率都比中位数 56.1% 低" —— **那是错的**，已删除。
+⚠️ An earlier version of this section claimed the 175k–206k acceptance rates were "all below the 56.1% median" — **that was false and has been deleted.**
 
-**方向一致（越深越慢），但机制未确立**：现象与 KV 压力吻合（245k int8 KV 池、32 GB 设备、14 GiB 主机卸载），但没有收集反证。
-**把原因当未知，把观测当实测。**
+**The direction is consistent (deeper is slower) but the mechanism is not established**: the behaviour is consistent with KV pressure (245k int8 KV pool, 32 GB device, 14 GiB offloaded to host), but no counter-evidence was collected. **Treat the cause as unknown and the observation as measured.**
 
-### 2.3 内核 A/B（解码）
+### 2.3 Kernel A/B (decode)
 
-同一台机器、同一 prompt（170,607 token）、`--greedy`、K=3、int8 KV。每臂取 `long-cold` 那条，原始 JSON 在 [`evidence/v2ab/`](evidence/v2ab/)。
+Same machine, same prompt (170,607 tokens), `--greedy`, K=3, int8 KV. Each arm uses its `long-cold` result; raw JSON in [`evidence/v2ab/`](evidence/v2ab/).
 
-| 臂 | 文件 | 解码 tok/s | MTP 接受率 |
+| Arm | File | decode tok/s | MTP acceptance |
 |---|---|---:|---:|
-| 原版内核，`--spec mtp` | `v2ab-v2off-200k.json` | 32.5653 | 0.5209 |
-| 移植 v2 内核，`--spec mtp` | `v2ab-flo-v2-200k.json` | **59.1960** | 0.7431 |
-| 原版内核，`--spec none` | `v2ab-v2off-nospec-200k.json` | 15.2077 | — |
-| 移植 v2 内核，`--spec none` | `v2ab-flo-nospec-v2-200k.json` | **21.8427** | — |
+| stock kernel, `--spec mtp` | `v2ab-v2off-200k.json` | 32.5653 | 0.5209 |
+| ported v2 kernel, `--spec mtp` | `v2ab-flo-v2-200k.json` | **59.1960** | 0.7431 |
+| stock kernel, `--spec none` | `v2ab-v2off-nospec-200k.json` | 15.2077 | — |
+| ported v2 kernel, `--spec none` | `v2ab-flo-nospec-v2-200k.json` | **21.8427** | — |
 
-**`--spec none` 那一对才是诚实口径**：开着投机解码时两个臂生成的内容会分叉（浮点累加顺序不同），接受率因此不同，看起来的一部分收益并非来自内核。
-无接受率干扰口径：**15.2077 → 21.8427 = +43.6%**（全精度比值 `21.842699455932266 / 15.20774511610815 - 1 = 0.436287844…`）。
+**The `--spec none` pair is the honest comparison**: with speculative decoding on, the two arms diverge (different floating-point accumulation order), so acceptance rates differ and part of the apparent gain is not the kernel's. Without acceptance interference: **15.2077 → 21.8427 = +43.6%** (full-precision ratio `21.842699455932266 / 15.20774511610815 - 1 = 0.436287844…`).
 
-### 2.4 压缩的真实代价（每轮都不同，别用一个平均数概括）
+### 2.4 What compaction actually costs (per cycle — do not average them)
 
-客户端在声明的 245k 窗口 80% 处压缩，本次会话触发 3 轮：
+The client compacts at 80% of the declared 245k window; this session triggered 3 cycles:
 
-| 轮 | 会话 prompt | 摘要调用 | 压缩后第一条 | 恢复 |
+| Cycle | Session prompt | Summary call | First request after | Recovery |
 |---|---|---|---|---|
-| 1 | req#39 · 201,700 | req#40 · 81,919 → 输出 4,209 · 1 m 53.6 s · 67.4 tok/s · 缓存 59.7% | req#41 · 136,497 · **缓存 0%** · TTFT 3 m 20.2 s | req#42 · 98.5% |
-| 2 | req#44 · 206,364 | req#45 · 88,228 → 输出 2,773 · 2 m 33.1 s · 66.3 tok/s | req#46 · 138,406 · **缓存 0%** · TTFT 3 m 24.0 s | — |
-| 3 | req#47 · 183,938 | req#48 · 136,960 → 输出 4,491 · 4 m 37.1 s · 58.5 tok/s | req#49 · 113,562 · **缓存 0%** · TTFT 2 m 30.9 s | req#50 · **99.4%**，TTFT 1.8 s |
+| 1 | req#39 · 201,700 | req#40 · 81,919 → output 4,209 · 1 m 53.6 s · 67.4 tok/s · cache 59.7% | req#41 · 136,497 · **cache 0%** · TTFT 3 m 20.2 s | req#42 · 98.5% |
+| 2 | req#44 · 206,364 | req#45 · 88,228 → output 2,773 · 2 m 33.1 s · 66.3 tok/s | req#46 · 138,406 · **cache 0%** · TTFT 3 m 24.0 s | — |
+| 3 | req#47 · 183,938 | req#48 · 136,960 → output 4,491 · 4 m 37.1 s · 58.5 tok/s | req#49 · 113,562 · **cache 0%** · TTFT 2 m 30.9 s | req#50 · **99.4%**, TTFT 1.8 s |
 
-| 轮 | 生成摘要 | 压后重新预填 | 合计 |
+| Cycle | Generating the summary | Re-prefill after | Total |
 |---|---:|---:|---:|
 | 1 | 1 m 53.6 s | 3 m 20.2 s | **5 m 13.8 s** |
 | 2 | 2 m 33.1 s | 3 m 24.0 s | **5 m 57.1 s** |
 | 3 | 4 m 37.1 s | 2 m 30.9 s | **7 m 8.0 s** |
 
-**压缩后立刻 `cache 0%` 是设计行为，不是 bug**：NInfer 官方文档写明*每个检查点都会使"从第一个被替换的历史 token"起的复用失效*，而摘要是插在会话最前面的，所以它之前的几乎全部内容都无法复用。
-**加内存解决不了这件事 —— 前缀是真的变了。**
+**`cache 0%` right after a compaction is by design, not a bug**: NInfer's documentation states that *every checkpoint invalidates reuse from the first replaced history token onward*, and a summary is inserted at the very front of the conversation, so almost everything before it becomes unreusable.
+**More memory does not fix this — the prefix genuinely changed.**
 
-两个待解观察：第 1 轮的摘要调用复用了 59.7% 前缀，第 2、3 轮报 0%（**原因未确立**）；第 3 轮触发时提供方报的 prompt 是 183,938，低于 196,000 的标称阈值 —— 客户端的压力计量对密排 ASCII 用字符启发式估算（该形状实测约 1.35 字符/token，启发式按 4 字符/token 算），**所以"阈值 196,000"是标称值，不是硬边界**（此解释来自客户端台账，不是本仓库日志能证明的）。
+Two open observations: cycle 1's summary call reused 59.7% of the prefix while cycles 2 and 3 report 0% (**cause not established**); and cycle 3 triggered at a provider-reported prompt of 183,938, below the nominal 196,000 threshold — the client's pressure gauge uses a character heuristic for dense ASCII (this shape measures about 1.35 chars/token while the heuristic assumes 4), **so "threshold 196,000" is nominal, not a hard boundary** (this explanation comes from the client's ledger, not from anything this repository can prove).
 
 ---
 
-## 3. 怎么装、怎么跑
+## 3. How to build and run it
 
-### 3.1 前提
+### 3.1 What was measured on
 
-| 项 | 本次实测环境 |
+| Item | This machine |
 |---|---|
-| GPU | **Tesla V100-SXM2-32GB**（sm_70），采集时 31,522 / 32,768 MiB（96.2%），33 °C |
-| 第二张卡 | RTX 3080 Ti，仅驱动显示，约 800 MiB |
-| 宿主 | **63.15 GiB（67.8 GB）内存**；WSL2 `Ubuntu-24.04`；`.wslconfig`：`memory=32GB`、`swap=8GB`、`networkingMode=nat` |
-| 引擎 | NInfer `build-v100/apps/ninfer-serve`，299,287,880 字节，md5 `6b104a4464cdab6687351c00770d7ba8`（2026-09-28 22:13:04 +0800） |
-| 模型 | `qwen3_8_27b_nvfp4.ninfer`，对外名 `qwen3.8-27b-uncen` |
-| 客户端 | DeepSeek Harness（DSH）网页端，47 个工具 schema，**单流** |
-| CUDA | **12.x**（**CUDA 13 已经不支持 Volta**） |
+| GPU | **Tesla V100-SXM2-32GB** (sm_70), 31,522 / 32,768 MiB at capture (96.2%), 33 °C |
+| Second GPU | RTX 3080 Ti, display only, ~800 MiB at capture |
+| Host | **63.15 GiB (67.8 GB) RAM**; WSL2 distro `Ubuntu-24.04`; `.wslconfig`: `memory=32GB`, `swap=8GB`, `networkingMode=nat` |
+| Engine | NInfer `build-v100/apps/ninfer-serve`, 299,287,880 bytes, md5 `6b104a4464cdab6687351c00770d7ba8` (2026-09-28 22:13:04 +0800) |
+| Model | `qwen3_8_27b_nvfp4.ninfer`, served as `qwen3.8-27b-uncen` |
+| Client | DeepSeek Harness (DSH) web UI, 47 tool schemas, **single stream** |
+| CUDA | **12.x** (**CUDA 13 dropped Volta**) |
 
-### 3.2 四步
+### 3.2 Four steps
 
-1. **为 sm_70 构建 NInfer**（见上游仓库 [`geoffwatts/ninfer-v100`](https://github.com/geoffwatts/ninfer-v100)）。
-2. **打上两处内核移植**：预填见配套仓库 [`ninfer-v100-splitd-kernel`](https://github.com/taskeee/ninfer-v100-splitd-kernel)；解码见 §8 的 tpx 与 Flo5k5 两个上游仓库。
-3. **放 `.wslconfig` 并重启 WSL**：样例在 [`launcher/wslconfig.example`](launcher/wslconfig.example)。**必须先把内存抬到 32GB** —— 14 GiB 页锁定 host KV 加上其余部分，16 GB 装不下。改完 `wsl --shutdown`。
-4. **用启动脚本起引擎**：现成可跑的版本在 [`launcher/start-ninfer.sh`](launcher/start-ninfer.sh)（顶部三个变量改掉即可），环境变量 `NINFER_SM70_ATTN_V2=1` 启用 v2 解码内核。
+1. **Build NInfer for sm_70** (see the upstream repo [`geoffwatts/ninfer-v100`](https://github.com/geoffwatts/ninfer-v100)).
+2. **Apply both kernel ports**: prefill is in the companion repo [`ninfer-v100-splitd-kernel`](https://github.com/taskeee/ninfer-v100-splitd-kernel); decode is in the two upstream repos named in §8.
+3. **Drop in `.wslconfig` and restart WSL**: the sample is [`launcher/wslconfig.example`](launcher/wslconfig.example). **Raise memory to 32GB first** — 14 GiB of pinned host KV plus everything else does not fit in 16 GB. Then `wsl --shutdown`.
+4. **Start the engine with the launcher**: a ready-to-run version is [`launcher/start-ninfer.sh`](launcher/start-ninfer.sh) (edit the three variables at the top); the environment variable `NINFER_SM70_ATTN_V2=1` enables the v2 decode kernel.
 
-引擎命令行（启动脚本里的就是这个）：
+The engine command line (this is what the launcher runs):
 
 ```
 ninfer-serve qwen3_8_27b_nvfp4.ninfer
@@ -205,9 +203,9 @@ ninfer-serve qwen3_8_27b_nvfp4.ninfer
   --vision --device 1
 ```
 
-### 3.3 起来以后应该看到这些行（对不上就别往下走）
+### 3.3 What you should see once it starts (if it does not match, stop there)
 
-原文在 [`logs/startup-raw.txt`](logs/startup-raw.txt)：
+Verbatim from [`logs/startup-raw.txt`](logs/startup-raw.txt):
 
 ```
 weights ready      | 20.0 GiB | 1m 3.6s | 322.3 MiB/s
@@ -220,107 +218,111 @@ capacity | KV 245,056 tokens, int8, explicit | pages 3,829/3,829 | runtime 10.5 
 context cache | 1 active + 1 cached device states | host 12 states, 14.0 GiB KV | private 4 | shared 8 | anchors 8
 ```
 
-**如果 `pinning host KV` 不是 14.0 GiB，或者进程正好死在这一行（`cudaMallocHost failed: cudaErrorMemoryAllocation`）**，把 `--host-kv-mib` 往下调 —— 见 §5 第 2 条：**上限是单次分配上限，不是"内存还剩多少"。**
+**If `pinning host KV` is not 14.0 GiB, or the process dies exactly there with `cudaMallocHost failed: cudaErrorMemoryAllocation`**, lower `--host-kv-mib` — see §5 item 2: **the ceiling is a single-allocation limit, not "how much RAM is left".**
 
-### 3.4 客户端
+### 3.4 Client
 
-任何 OpenAI 兼容客户端都能驱动它，**保持单流**（`--max-concurrency 1` 是刻意选择，见 §5 第 6 条）。
-拿 [`logs/done-lines-raw.txt`](logs/done-lines-raw.txt) 对照自己的数字即可。
+Any OpenAI-compatible client can drive it, **single stream** (`--max-concurrency 1` is deliberate — see §5 item 6).
+Compare your own numbers against [`logs/done-lines-raw.txt`](logs/done-lines-raw.txt).
 
 ---
 
-## 4. 四个关键设置，为什么是这些值
+## 4. The four settings, and why they have these values
 
-| 设置 | 原版默认 | 本机使用 | 依据 |
+| Setting | Upstream default | Used here | Rationale |
 |---|---:|---:|---|
-| `--host-state-slots` | 8 | **12** | 依据来自**引擎源码**（`src/targets/qwen3_6/impl/runtime/program_impl.h`）：`logical_state_capacity = (max_concurrency + device_state_slots) + host_state_slots`，而地址空间是 `max_private_continuations + max_shared_prefixes + 1`。取默认计数（4/8）时为 13，而 state image 只有 (1+1)+8 = 10 个 ⇒ 多出来的检查点无法落地。2 + 12 = 14 ≥ 13。**这两个计数与源码行号不在本仓库的日志证据里**，属源码级依据；只有"每槽约 147 MiB 页锁定内存"可由日志反算（`pinning host state \| 1.72 GiB` ÷ 12）。 |
-| `--host-kv-mib` | 8192 | **14336** | 可复用跨请求前缀的**字节池**。按约 45 KiB/token 算，8192 MiB ≈ 18.7 万 token，不足一个 245k 窗口。**上限不是内存大小**：本机 CUDA 探针实测**单次** `cudaMallocHost` 上限约 15 GiB（16 GiB 即 `cudaErrorMemoryAllocation`），而累计 2 GiB 小块能到 28 GiB；引擎是一次性分配，所以约 15 GiB 就是硬顶，且**与 `.wslconfig` 给多少内存无关**（32 GB 与 40 GB 下测得完全相同）。试过 20 GiB：引擎起不来。 |
-| `--pending-timeout-ms` | 30000 | **900000** | "准备 + 排队"的绝对截止时间。用默认 30 秒时，任何第二个请求（子代理、辅助调用）会在排队超时后被**杀掉**（`HTTP 503 request_queue_timeout`），而不是等待。**等待只是慢，被杀是整轮作废。** |
-| `--max-private-continuations` / `--max-shared-prefixes` / `--max-long-anchors-per-continuation` | 2 / 4 / 2 | **4 / 8 / 8** | 这三个是**描述符计数**，不占内存（`address_capacity = private + shared + 1`），调大不会挤小每个检查点的字节预算。 |
+| `--host-state-slots` | 8 | **12** | From the **engine source** (`src/targets/qwen3_6/impl/runtime/program_impl.h`): `logical_state_capacity = (max_concurrency + device_state_slots) + host_state_slots`, while the address space is `max_private_continuations + max_shared_prefixes + 1`. With the default descriptor counts (4/8) the former is 13 while there are only (1+1)+8 = 10 state images, so the extra checkpoints cannot land. 2 + 12 = 14 ≥ 13. **These two counts and the source line are not part of this repository's log evidence** — they are source-level reasoning; only "≈147 MiB of pinned memory per slot" can be back-computed from the log (`pinning host state \| 1.72 GiB` ÷ 12). |
+| `--host-kv-mib` | 8192 | **14336** | The **byte pool** for reusable cross-request prefixes. At ~45 KiB/token, 8192 MiB ≈ 187k tokens, less than one 245k window. **The limit is not the amount of RAM**: a local CUDA probe measured a **single** `cudaMallocHost` ceiling of about 15 GiB (16 GiB returns `cudaErrorMemoryAllocation`), while many 2 GiB chunks accumulate to 28 GiB; the engine allocates in one shot, so ~15 GiB is the hard ceiling, and it is **independent of how much memory `.wslconfig` grants** (identical at 32 GB and 40 GB). 20 GiB was tried: the engine will not start. |
+| `--pending-timeout-ms` | 30000 | **900000** | An absolute deadline covering "prepare + queue". With the 30-second default, any second request (a subagent, an auxiliary call) is **killed** after queueing times out (`HTTP 503 request_queue_timeout`) instead of waiting. **Waiting is slow; being killed wastes the whole turn.** |
+| `--max-private-continuations` / `--max-shared-prefixes` / `--max-long-anchors-per-continuation` | 2 / 4 / 2 | **4 / 8 / 8** | These are **descriptor counts, not memory** (`address_capacity = private + shared + 1`); raising them does not shrink the byte budget of any checkpoint. |
 
-`--max-context` **没有**再往上抬。按引擎自己那次拒启的报数反推：
-`12,004,767,744 ÷ 262,144 = 45,794.5547 B/token` ⇒ `11,330,617,856 ÷ 45,794.5547 ≈ 247,422.8`，
-即这张卡上能准备的 prompt 上限约 **247,423 token** —— 所以 `245000` 只剩约 2,400 token 余量。
+`--max-context` was **not** raised. Back-computing from the engine's own refusal:
+`12,004,767,744 ÷ 262,144 = 45,794.5547 B/token` ⇒ `11,330,617,856 ÷ 45,794.5547 ≈ 247,422.8`,
+i.e. the largest prompt this card can prepare is about **247,423 tokens** — so `245000` leaves only ~2,400 tokens of slack.
 
-**第二个来源方向一致，但精度有限**：正在跑的引擎自己那行 `KV 245,056 tokens … runtime 10.5 GiB`，
-按 45,794.5547 B/token 算得 10.4515 GiB，四舍五入正好印成 `10.5 GiB`；反过来，`10.5 GiB` 这个两位有效数字
-只能把每 token 成本钉在约 45,788–46,226 区间内 —— **对得上，但别当独立证明用。**
+**A second source points the same way, with limited precision**: the running engine's own line `KV 245,056 tokens … runtime 10.5 GiB`. At 45,794.5547 B/token that works out to 10.4515 GiB, which rounds to the printed `10.5 GiB`; conversely, `10.5 GiB` at two significant figures only pins the per-token cost to roughly 45,788–46,226. **Consistent, but do not treat it as independent proof.**
 
-试过 `262144`，引擎拒启：`requested Engine runtime reservation requires 12004767744 bytes, but only 11330617856 bytes are available`。
-⚠️ **这一处早先版本写错并已订正**：原来把 `45,794`（整数）与 `45,794.55` 混用，并把硬顶写成 `≈247,428`，还附了一句"取整数分母的近似"来圆它 —— **`247,428` 在任何分母下都算不出来**（除以 45,794 得 247,425.8，取整是 247,426），那句解释也是编的。现全文统一为 `45,794.5547 B/token` / **≈247,423**。
-这两行来自启动器控制台（对应引擎日志已被后一次成功启动覆盖），原文见 [`evidence/failed-startup-console.txt`](evidence/failed-startup-console.txt)。
+`262144` was tried and refused: `requested Engine runtime reservation requires 12004767744 bytes, but only 11330617856 bytes are available`.
+⚠️ **This spot was wrong in an earlier version and has been corrected**: it mixed `45,794` (an integer) with `45,794.55` and stated the ceiling as `≈247,428`, with an explanation that 247,428 was "the integer-denominator approximation" — **`247,428` cannot be produced by any denominator** (dividing by 45,794 gives 247,425.8, which rounds to 247,426), and that explanation was fabricated. Everything is now unified on `45,794.5547 B/token` / **≈247,423**.
+Those two lines come from the launcher's console (the matching engine log was overwritten by a later successful start); the original text is in [`evidence/failed-startup-console.txt`](evidence/failed-startup-console.txt).
 
 ---
 
-## 5. 坑（按踩到的顺序）
+## 5. Pitfalls (in the order they were hit)
 
-1. **247k 硬墙可撞，且引擎侧无解。** `--max-context 245000` 卡的是**准备后**的 prompt（系统提示 + 工具 schema + 全部历史）。一条超大工具结果能一步顶穿；而当"最新那个不可分单元"本身就太大时，客户端压缩和 NInfer 的溢出恢复都救不了。
-2. **约 15.72 GiB 页锁定主机内存是前缀复用的价格**（14.0 GiB host KV + 1.72 GiB host state，两者都由 `startup-raw.txt` 的 `pinning host` 行给出）。`--no-prefix-reuse` 能把它降到零，代价是每轮都全量预填。**单次分配上限约 15 GiB，且不随 WSL 内存增长** —— 这条结论的数据未随本仓库发布（方法与说明见 [`evidence/pinned-probe-notes.txt`](evidence/pinned-probe-notes.txt)）。
-3. **压缩后必然一次全量预填，加内存没用**（前缀真的变了，见 §2.4）。这是"用着用着卡五分钟"的真身。
-4. **引擎静默死过一次，原因从未查明。** 一次 193k 改写请求之后：客户端 `RemoteDisconnected`，日志停在预填中段，**没有任何报错行**，当时设备侧只剩 188 MiB。复现一次。**无日志行的静默死亡是这套方案最糟的失效形态。**
-5. **移植内核 ≠ 逐 token 等价。** 解码内核改变了浮点累加顺序，长深度 greedy 输出**会与移植前分叉**，token 级等价从未被证明（上游内核自测在两档开关下都通过，但那不是同一个断言）。
-6. **`--max-concurrency 1` 是刻意选择**：KV 池只按一条序列排量，深度下第二个流服务不了。NInfer 文档里 `--max-concurrency` 合法范围是 1..8 —— 这是容量问题，不是开关限制。
-7. **启动器只能留一份。** 本机为此出过两次事故：一次修复落到了过期副本上；第二次那个副本悄悄丢掉了 `--vision`，于是所有带图回合 400 `vision_disabled`。**权威文件只有一个，别的名字都是错的。**
-8. **引擎日志每次重启即截断、无轮转**（`/home/ai/ninfer-serve.log`）。要引用某次启动的数字，必须在重启前先抄出来。
-9. **Windows 侧写脚本：`.ps1` 里一个非 ASCII 字符都不能有**（中文路径会变乱码导致找不到、字符串里带 `≥` `–` 会让整脚本解析失败）。脚本体保持纯 ASCII，中文外置成 UTF-8 文件读进来。
-10. **数字属于一台机器。** SXM2（约 900 GB/s）而非 PCIe（约 780 GB/s）、63.15 GiB 宿主、单流、单一模型制品。换机器别指望数字不变。
-
----
-
-## 6. 试过但没用的东西（省得你再走一遍）
-
-⚠️ **`[未随证据发布]` —— 本节没有任何一条能追到 `logs/`。** 它来自本机未发布的引擎台账与 bash 语义。
-
-- `--kv-dtype fp8` —— 预填 −88%、解码 −88%，TTFT 12.7 s → 1 m 50 s。Volta 没有原生 fp8 路径，会退回逐元素反量化。
-- `--kv-dtype nvfp4` / `k8v4` —— **Volta 直接拒收**：32 毫秒内 `FATAL ... NVFP4 KV-cache storage is unavailable on Volta`。**这张卡上没有办法把 KV 容量翻倍。**
-- `--prefill-chunk 8192` —— 预填 −41%。1024 在浅层略差、深层打平。`2048` 是实测最优。
-- `--media-cache-mib` / `--media-live-mib` —— 这两个是**上限，不是预分配**；改它不改变显存也不改变速度。
-- 上调 `--max-context` —— 见 §5 第 1 条，卡扛不住。
-- **跑子代理 / 第二个并发流** —— 第二个请求会排队等一次 40–170 秒的预填，在默认 `--pending-timeout-ms 30000` 下被 `HTTP 503` 杀掉。**要改的是超时，不是显存。**
-- 启动器里写 `exec VAR=1 cmd` —— bash 会把赋值当程序名。赋值必须写在 `exec` **之前**。
-- **想靠加内存换更大的前缀池** —— 单次 `cudaMallocHost` 上限约 15 GiB 且与 WSL 内存无关（§5 第 2 条）。
+1. **The 247k wall is real and there is no engine-side fix.** `--max-context 245000` applies to the **prepared** prompt (system prompt + tool schemas + full history). One oversized tool result can blow through it in a single step; and when the "newest indivisible unit" is itself too large, neither client-side compaction nor NInfer's overflow recovery helps.
+2. **About 15.72 GiB of pinned host memory is the price of prefix reuse** (14.0 GiB host KV + 1.72 GiB host state, both from the `pinning host` lines in `startup-raw.txt`). `--no-prefix-reuse` drops it to zero at the cost of a full prefill every turn. **The single-allocation ceiling is about 15 GiB and does not grow with WSL memory** — the data behind that conclusion is not published with this repo (method and notes in [`evidence/pinned-probe-notes.txt`](evidence/pinned-probe-notes.txt)).
+3. **Every compaction forces one full re-prefill, and more memory does not help** (the prefix really changed — see §2.4). This is the real identity of "it froze for five minutes".
+4. **The engine died silently once, and the cause was never found.** After a 193k rewrite request: client `RemoteDisconnected`, the log stops mid-prefill, **no error line at all**, with only 188 MiB free on the device. Reproduced once. **A silent death with no log line is the worst failure mode of this setup.**
+5. **A ported kernel is not token-for-token equivalent.** The decode kernel changes the floating-point accumulation order, so long-depth greedy output **diverges** from the pre-port build; token-level equivalence was never proven (the upstream kernel's self-test passes under both switch settings, but that is a different claim).
+6. **`--max-concurrency 1` is deliberate**: the KV pool is sized for a single sequence, and at depth a second stream cannot be served. NInfer documents `--max-concurrency` as 1..8 — this is a capacity issue, not a switch limitation.
+7. **Keep exactly one launcher.** This machine had two accidents because of duplicates: one fix landed on a stale copy; another copy silently lost `--vision`, so every image-bearing turn returned 400 `vision_disabled`. **One authoritative file; every other name is wrong.**
+8. **The engine log is truncated on every restart with no rotation** (`/home/ai/ninfer-serve.log`). If you want to quote numbers from a given start, copy them out before restarting.
+9. **On Windows, a `.ps1` may not contain a single non-ASCII character** (Chinese paths get mangled and stop resolving; a literal `≥` or `–` in a string breaks parsing of the whole script). Keep the script body pure ASCII and read Chinese text from an external UTF-8 file.
+10. **These numbers belong to one machine.** SXM2 (~900 GB/s) rather than PCIe (~780 GB/s), a 63.15 GiB host, a single stream, one model artifact. Do not expect the same elsewhere.
 
 ---
 
-## 7. 证据在哪，以及哪些追不到
+## 6. Things that were tried and did not work (so you do not have to)
 
-**能逐行复现的**（每个数字 → 原始行）：
+⚠️ **`[not published with the evidence]` — nothing in this section traces to `logs/`.** It comes from the machine's unpublished engine ledger and from bash semantics.
 
-| 内容 | 位置 |
+- `--kv-dtype fp8` — prefill −88%, decode −88%, TTFT 12.7 s → 1 m 50 s. Volta has no native fp8 path and falls back to per-element dequantisation.
+- `--kv-dtype nvfp4` / `k8v4` — **Volta rejects them outright**: within 32 ms, `FATAL ... NVFP4 KV-cache storage is unavailable on Volta`. **There is no way to double KV capacity on this card.**
+- `--prefill-chunk 8192` — prefill −41%. 1024 is slightly worse at shallow depth and equal at depth. `2048` is the measured optimum.
+- `--media-cache-mib` / `--media-live-mib` — these are **caps, not preallocations**; changing them changes neither VRAM nor speed.
+- Raising `--max-context` — see §5 item 1; the card cannot take it.
+- **Subagents / a second concurrent stream** — the second request queues behind a 40–170 second prefill and is killed by `HTTP 503` under the default `--pending-timeout-ms 30000`. **The thing to change is the timeout, not the VRAM.**
+- Writing `exec VAR=1 cmd` in a launcher — bash treats the assignment as the program name. Assignments must come **before** `exec`.
+- **Trying to buy a bigger prefix pool with more memory** — a single `cudaMallocHost` caps at about 15 GiB regardless of WSL memory (§5 item 2).
+
+---
+
+## 7. Where the evidence is, and what cannot be traced
+
+**Traceable line by line** (every number → its raw line):
+
+| Content | Location |
 |---|---|
-| 53 行逐行主表原文 | [`logs/done-lines-raw.txt`](logs/done-lines-raw.txt) |
-| 每条请求的 started 行（消息数、max output、thinking 档） | [`logs/req-events-raw.txt`](logs/req-events-raw.txt) |
-| 启动与环境（nvidia-smi、命令行、二进制 md5、WSL 内存） | [`logs/startup-raw.txt`](logs/startup-raw.txt)、[`logs/environment-raw.txt`](logs/environment-raw.txt) |
-| 完整引擎日志快照（07:31 那次成功启动之后） | [`logs/ninfer-serve.log.snapshot-final`](logs/ninfer-serve.log.snapshot-final) |
-| 被测会话自己的台账 | [`logs/under-test-ledger.md`](logs/under-test-ledger.md) |
-| 内核 A/B 的四个原始臂（10 个 JSON） | [`evidence/v2ab/`](evidence/v2ab/) |
-| 上游身份核对 | [`logs/upstream-identity.txt`](logs/upstream-identity.txt) |
-| **每条断言 → 来源行 + 核对命令 + 期望值** | [`claims.md`](claims.md) |
+| All 53 rows, verbatim | [`logs/done-lines-raw.txt`](logs/done-lines-raw.txt) |
+| Per-request `started` lines (message counts, max output, thinking level) | [`logs/req-events-raw.txt`](logs/req-events-raw.txt) |
+| Startup and environment (nvidia-smi, command line, binary md5, WSL memory) | [`logs/startup-raw.txt`](logs/startup-raw.txt), [`logs/environment-raw.txt`](logs/environment-raw.txt) |
+| Full engine log snapshot (after the 07:31 successful start) | [`logs/ninfer-serve.log.snapshot-final`](logs/ninfer-serve.log.snapshot-final) |
+| The measured session's own ledger | [`logs/under-test-ledger.md`](logs/under-test-ledger.md) |
+| The four raw A/B arms (10 JSON files) | [`evidence/v2ab/`](evidence/v2ab/) |
+| Upstream identity check | [`logs/upstream-identity.txt`](logs/upstream-identity.txt) |
+| **Every claim → source line + check command + expected value** | [`claims.md`](claims.md) |
 
-**追不到 `logs/` 的四类**（正文里已逐条标 `[未随证据发布]`，`claims.md` 有完整清单）：
+**Four kinds of numbers that do not trace to `logs/`** (each is marked `[not published with the evidence]` in the text; `claims.md` has the full list):
 
-1. **内核单次调用耗时**（1.637 → 0.689 ms 中位，n=101）—— 来自本机另一份 trace 分析，`logs/` 与 `evidence/` 里没有这份数据；
-2. **两次失败启动的 FATAL 行** —— 来自启动器控制台，对应引擎日志已被后一次成功启动覆盖；
-3. **页锁定内存探针**（单次 15 GiB / 累计 28 GiB）—— 只有方法与说明，没有原始输出；
-4. **§6「试过但没用的东西」整节** —— 来自未发布的引擎台账。
+1. **Single kernel-call latency** (1.637 → 0.689 ms median, n=101) — from a separate local trace analysis; neither `logs/` nor `evidence/` contains that trace;
+2. **The FATAL lines from two failed startups** — from the launcher console; the matching engine logs were overwritten by the later successful start;
+3. **The pinned-memory probe** (15 GiB single-shot / 28 GiB cumulative) — method and notes only, no raw output;
+4. **The whole of §6** — from the unpublished engine ledger.
 
-另外两处**二手或单点**的：`峰值 31,522 MiB` 其实只有**一个** nvidia-smi 采样点，严格说是某时刻值；`WSL2 Ubuntu-24.04` 的名称来自启动器与 `.wslconfig`，机器输出未随仓库发布。
+Two more are **second-hand or single-point**: `peak 31,522 MiB` is actually **one** nvidia-smi sample, strictly a point-in-time value; and the name `WSL2 Ubuntu-24.04` comes from the launcher and `.wslconfig`, with no machine output published.
 
-**本文被审过。** 发布后由一个**没有参与产出**的独立进程逐条重算过全部断言，第一遍就找出 19 处对不上（**全部集中在归纳/派生表述，原始行 0 处编造**），订正内容与残余问题在 [`claims.md`](claims.md) 末节。
-**结论：原始行可信，归纳层要小心 —— 凡涉及区间的数字，请回到逐行原值自己重算。**
+**This document has been audited.** After publication, an independent process that took no part in producing it recomputed every claim; the first pass alone found 19 mismatches (**all of them in summarising/derived statements — zero fabrications in the raw rows**). The corrections and the remaining problems are at the end of [`claims.md`](claims.md).
+**Conclusion: the raw rows are trustworthy; the summarising layer is where you should be careful — for any band figure, go back to the per-row values and recompute it yourself.**
 
 ---
 
-## 8. 署名与许可
+## 8. Attribution and licences
 
-本方案里**没有任何内核是本机所有者的原创工作**。
+**No kernel here is the original work of this machine's owner.**
 
-| 组件 | 来源 | 许可 |
+| Component | Source | Licence |
 |---|---|---|
-| NInfer 引擎 | [geoffwatts/ninfer-v100](https://github.com/geoffwatts/ninfer-v100) | Apache-2.0（见该仓库） |
-| Split-D D256 预填内核 | [fishlikeX/sm70-attn](https://github.com/fishlikeX/sm70-attn) | MIT（见配套仓库） |
-| `small_t_i8_volta_v2.cuh` 解码内核 | [huangserva/ninfer-v100-tpx](https://github.com/huangserva/ninfer-v100-tpx) | Apache-2.0 |
-| 六个 sm70 提交 | [Flo5k5/ninfer-v100-sm70](https://github.com/Flo5k5/ninfer-v100-sm70) | Apache-2.0（**再分发前请自行核实**） |
+| NInfer engine | [geoffwatts/ninfer-v100](https://github.com/geoffwatts/ninfer-v100) | Apache-2.0 (see that repo) |
+| Split-D D256 prefill kernel | [fishlikeX/sm70-attn](https://github.com/fishlikeX/sm70-attn) | MIT (see the companion repo) |
+| `small_t_i8_volta_v2.cuh` decode kernel | [huangserva/ninfer-v100-tpx](https://github.com/huangserva/ninfer-v100-tpx) | Apache-2.0 |
+| Six sm70 commits | [Flo5k5/ninfer-v100-sm70](https://github.com/Flo5k5/ninfer-v100-sm70) | Apache-2.0 (verify before redistributing) |
 
-**本仓库不含任何内核源码，也不含模型制品。** 它只是一份记录：做了什么、量到了什么、什么没用。
-代码请从上面这些上游仓库获取，并自行核对各自许可。[`launcher/`](launcher/) 里只有启动脚本与 `.wslconfig` 样例 —— 那些是配置，不是内核代码。
+**This repository contains no kernel source and no model artifact.** It is a record: what was done, what was measured, what did not work.
+Get the code from the upstream repositories above and check each licence yourself. [`launcher/`](launcher/) holds only a start script and a `.wslconfig` sample — configuration, not kernel code.
+
+---
+
+**If this saved you a wasted weekend, a ⭐ helps the next person with a V100 find it.** None of the kernels are ours; the value published here is the measurements and the settings.
+
+*Also relevant if you run a V100 or any sm_70 card: the prefill half of this setup is in the companion repository — [`taskeee/ninfer-v100-splitd-kernel`](https://github.com/taskeee/ninfer-v100-splitd-kernel) (+36–41% prefill, TTFT −3 min).*
