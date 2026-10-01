@@ -336,4 +336,6 @@ context cache | 1 active + 1 cached device states | host 12 states, 14.0 GiB KV 
 
 **如果这份记录帮你省掉了一个折腾的周末，一个 ⭐ 能让下一个拿着 V100 的人找到它。** 这里没有一行内核是本机原创，值钱的是实测数据和那几个参数。
 
+*同一份内容的英文版（仓库默认页）：[README.md](README.md) · 语言切换：[English](README.md) | [简体中文](README.zh-CN.md)。*
+
 *同样跑 V100（或任何 sm_70 卡）的话，这套配置的预填那一半在配套仓库：[`taskeee/ninfer-v100-splitd-kernel`](https://github.com/taskeee/ninfer-v100-splitd-kernel)（预填 +36–41%，首字 −3 分钟）。*

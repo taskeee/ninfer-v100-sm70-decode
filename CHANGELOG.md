@@ -11,16 +11,19 @@ The engine and kernel changes are described in the README and live in the upstre
   Chinese and English lived in `README.en.md`). Nothing was renumbered or rewritten: the two files are the same two
   documents, with the language roles swapped so that visitors from search engines and link previews land on English.
 - Both language versions now start with a two-button language switch, and link to each other at the top and the bottom.
-- The repository description was shortened and made English-only; the Chinese description moved into the Chinese README.
+- The repository description was rewritten in English and keyword-first, and the Chinese description moved into the
+  Chinese README; the new description ends with a one-line pointer to `README.zh-CN.md`.
 - `README.en.md` is kept as a one-line redirect to `README.md`, so links to the old filename do not 404.
 
 **Added**
 
 - `assets/session-53-benchmark.png` — one figure generated from `data/session-53-requests.csv` (decode vs prompt depth,
   with the two README medians marked; TTFT for cache hits vs misses). Every value in it is recomputed from that CSV.
-  The generator is `_tools/gen_chart.py`, kept so the figure can be regenerated rather than hand-edited.
-- The social-preview card (`social-preview-1280x640.png`) is stored here for reference; it lives in the repository
-  settings, not in the tree.
+  The generator is committed at `tools/gen_chart.py` (standard library only: it emits SVG, which is rasterised by a
+  headless browser), so the figure can be regenerated instead of hand-edited.
+- The repository's social-preview card is **not** in the tree: GitHub exposes no API for it, so it is uploaded by hand
+  under *Settings → General → Social preview*. The 1280×640 card itself is produced by the same generator
+  (`social.html`).
 - Repository topics: `gpu-inference`, `gpu-kernel` and `llm-serving` were dropped as near-duplicates of the remaining
   topics, and `local-llm`, `ai-agents` and `nvidia` were added. Still 20.
 

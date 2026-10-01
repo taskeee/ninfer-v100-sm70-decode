@@ -325,4 +325,6 @@ Get the code from the upstream repositories above and check each licence yoursel
 
 **If this saved you a wasted weekend, a ⭐ helps the next person with a V100 find it.** None of the kernels are ours; the value published here is the measurements and the settings.
 
+*中文版：[README.zh-CN.md](README.zh-CN.md) · Language switch: [English](README.md) | [简体中文](README.zh-CN.md).*
+
 *Also relevant if you run a V100 or any sm_70 card: the prefill half of this setup is in the companion repository — [`taskeee/ninfer-v100-splitd-kernel`](https://github.com/taskeee/ninfer-v100-splitd-kernel) (+36–41% prefill, TTFT −3 min).*
