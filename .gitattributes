@@ -1,0 +1,4 @@
+# tools/gen_chart.py is a build tool for the figure, not what this repository is about.
+# Keeping it out of GitHub's language statistics stops the repo being labelled a Python
+# project and stops GitHub suggesting Python packaging workflows for a measurement record.
+tools/gen_chart.py linguist-documentation
