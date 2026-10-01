@@ -21,8 +21,9 @@ The engine and kernel changes are described in the README and live in the upstre
   with the two README medians marked; TTFT for cache hits vs misses). Every value in it is recomputed from that CSV.
   The generator is committed at `tools/gen_chart.py` (standard library only: it emits SVG, which is rasterised by a
   headless browser), so the figure can be regenerated instead of hand-edited.
-- The repository's social-preview card is **not** in the tree: GitHub exposes no API for it, so it is uploaded by hand
-  under *Settings → General → Social preview*. The 1280×640 card itself is produced by the same generator
+- `assets/hero-card.png` — the 1280×640 card, shown as a banner at the top of both READMEs. The copy that GitHub serves
+  as the repository's social preview (the image people see when the link is pasted into a chat or a forum) is uploaded
+  by hand under *Settings → General → Social preview*: GitHub exposes no API for it. Both come from the same generator
   (`social.html`).
 - Repository topics: `gpu-inference`, `gpu-kernel` and `llm-serving` were dropped as near-duplicates of the remaining
   topics, and `local-llm`, `ai-agents` and `nvidia` were added. Still 20.

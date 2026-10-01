@@ -3,6 +3,8 @@
   <a href="README.zh-CN.md"><img alt="简体中文" src="https://img.shields.io/badge/%E8%AF%AD%E8%A8%80-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-d73a4a?style=for-the-badge"></a>
 </p>
 
+![A 2017 GPU running a 2026 27B long-context agent — decode 42.3–89.4 tok/s, 0.54 s time to first token on a cache hit, 53/53 real agent requests with zero errors](assets/hero-card.png)
+
 # A 2017 Tesla V100 running a 2026 27B long-context agent
 
 A **working configuration** for a single **Tesla V100-SXM2-32GB (sm_70)** running **Qwen3.8-27B**, measured under a real agent workload, together with the raw engine logs behind every number. No kernel here is original work by this machine's owner — the kernels come from the community; what is published here is the part that makes them **add up to something that runs**: kernels + scheduling + context-cache tuning.

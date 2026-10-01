@@ -3,6 +3,8 @@
   <a href="README.zh-CN.md"><img alt="简体中文（当前）" src="https://img.shields.io/badge/%E8%AF%AD%E8%A8%80-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-d73a4a?style=for-the-badge"></a>
 </p>
 
+![一张 2017 年的显卡跑 2026 年的 27B 长上下文 agent —— 解码 42.3–89.4 tok/s、命中缓存首字 0.54 秒、53/53 个真实 agent 请求零失败](assets/hero-card.png)
+
 # 一张 2017 年的 V100，跑 2026 年的 27B 长上下文 agent
 
 > **English, in one breath:** a 2017 **Tesla V100-SXM2-32GB (sm_70)** running a 2026-style **27B long-context agent** — an sm70 **decode kernel** port plus **KV cache / context-cache** tuning, measured on a real **53-request agent session**: decode **42.3–89.4 tok/s**, TTFT **0.54–7.7 s** on cache hits, zero failed requests, and the **raw engine logs behind every number**. Full English write-up — **now the repository's default landing page**: **[README.md](README.md)**. *(The machine's owner neither reads English nor writes code — please ask your own AI, not him.)*
